@@ -1,10 +1,14 @@
-/* eslint-disable @typescript-eslint/no-unsafe-member-access */
-import { BadRequestException, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { CreateUserDto } from './dto/create-user.dto';
 import { InjectRepository } from '@nestjs/typeorm';
 import { User } from './entities/user.entity';
 import { Repository } from 'typeorm';
 import * as bcrypt from 'bcrypt';
+import { LoginUserDto } from './dto/login-user.dto';
 
 @Injectable()
 export class AuthService {
@@ -21,10 +25,27 @@ export class AuthService {
         password: bcrypt.hashSync(password, 10),
       });
 
-      await this.userRepository.save(user);
-      delete user.password;
+      const { password: removed, ...userWithoutPassword } = user;
+      return userWithoutPassword;
+    } catch (error) {
+      this.handleDBErrors(error);
+    }
+  }
 
-      return user;
+  async login(loginUserDto: LoginUserDto) {
+    try {
+      const { email, password } = loginUserDto;
+      const user = await this.userRepository.findOne({
+        where: { email },
+        select: { email: true, password: true },
+      });
+
+      if (!user || !bcrypt.compareSync(password, user.password!)) {
+        throw new UnauthorizedException('Invalid credentials');
+      }
+
+      const { password: removed, ...userWithoutPassword } = user;
+      return userWithoutPassword;
     } catch (error) {
       this.handleDBErrors(error);
     }
