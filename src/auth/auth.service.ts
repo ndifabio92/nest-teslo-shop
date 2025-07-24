@@ -9,12 +9,15 @@ import { User } from './entities/user.entity';
 import { Repository } from 'typeorm';
 import * as bcrypt from 'bcrypt';
 import { LoginUserDto } from './dto/login-user.dto';
+import { JwtPayload } from './interfaces/jwt-payload';
+import { JwtService } from '@nestjs/jwt';
 
 @Injectable()
 export class AuthService {
   constructor(
     @InjectRepository(User)
     private readonly userRepository: Repository<User>,
+    private readonly jwtService: JwtService,
   ) {}
 
   async create(createUserDto: CreateUserDto) {
@@ -23,10 +26,13 @@ export class AuthService {
       const user = await this.userRepository.save({
         ...rest,
         password: bcrypt.hashSync(password, 10),
+        select: { email: true, roles: true, fullName: true, id: true },
       });
 
-      const { password: removed, ...userWithoutPassword } = user;
-      return userWithoutPassword;
+      return {
+        ...user,
+        token: this.getJwtToken({ id: user.id }),
+      };
     } catch (error) {
       this.handleDBErrors(error);
     }
@@ -37,18 +43,31 @@ export class AuthService {
       const { email, password } = loginUserDto;
       const user = await this.userRepository.findOne({
         where: { email },
-        select: { email: true, password: true },
+        select: {
+          email: true,
+          roles: true,
+          fullName: true,
+          id: true,
+          password: true,
+        },
       });
 
       if (!user || !bcrypt.compareSync(password, user.password!)) {
         throw new UnauthorizedException('Invalid credentials');
       }
-
-      const { password: removed, ...userWithoutPassword } = user;
-      return userWithoutPassword;
+      const { password: _, ...rest } = user;
+      return {
+        ...rest,
+        token: this.getJwtToken({ id: user.id }),
+      };
     } catch (error) {
       this.handleDBErrors(error);
     }
+  }
+
+  private getJwtToken(payload: JwtPayload) {
+    const token = this.jwtService.sign(payload);
+    return token;
   }
 
   private handleDBErrors(error: any): never {
